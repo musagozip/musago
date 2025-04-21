@@ -1,182 +1,10 @@
-# import sys
-# import pandas as pd
-# from PyQt5.QtWidgets import (
-#     QApplication, QWidget, QVBoxLayout, QLabel, QTabWidget,
-#     QMessageBox, QComboBox, QHBoxLayout, QPushButton
-# )
-# from PyQt5.QtCore import QTimer
-# from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
-# from matplotlib.figure import Figure
-
-# import matplotlib
-# import matplotlib.pyplot as plt
-
-# import pymysql
-# from datetime import datetime
-
-
-# # 한글 폰트 설정 (윈도우 기준)
-# matplotlib.rcParams['font.family'] = 'Malgun Gothic'
-# matplotlib.rcParams['axes.unicode_minus'] = False
-
-
-# class SensorDashboard(QWidget):
-#     def __init__(self):
-#         super().__init__()
-#         self.setWindowTitle("스마트 산업현장 대시보드")
-#         self.setGeometry(200, 200, 1000, 600)
-
-#         self.layout = QVBoxLayout()
-#         self.setLayout(self.layout)
-
-#         self.tabs = QTabWidget()
-#         self.layout.addWidget(self.tabs)
-
-#         self.sensors = ["temperature", "gas", "power", "sound"]
-
-#         # 위험 기준선 설정
-#         self.thresholds = {
-#             "temperature": 66,
-#             "gas": 200,
-#             "power": 4.0,
-#             "sound": 80
-#         }
-
-#         # 탭별 센서 추가
-#         for sensor in self.sensors:
-#             self.tabs.addTab(self.create_sensor_tab(sensor), sensor)
-
-#         # 타이머로 데이터 주기적 로딩
-#         self.timer = QTimer()
-#         self.timer.timeout.connect(self.update_all_tabs)
-#         self.timer.start(2000)
-
-#     def create_sensor_tab(self, sensor):
-#         widget = QWidget()
-#         layout = QVBoxLayout()
-#         widget.setLayout(layout)
-
-#         figure = Figure()
-#         canvas = FigureCanvas(figure)
-#         layout.addWidget(canvas)
-
-#         self.sensor_label = QLabel(f"센서 종류: {sensor}")
-#         layout.addWidget(self.sensor_label)
-
-#         widget.canvas = canvas
-#         widget.figure = figure
-#         widget.sensor = sensor
-#         return widget
-
-#     def update_all_tabs(self):
-#         try:
-#             df = pd.read_csv("C:/Users/user/Desktop/산업재해데이터/sensor_result.csv", encoding="cp949")
-#             df['timestamp'] = pd.to_datetime(df['timestamp'])
-#             recent_data = df.tail(30)
-
-#             for i in range(self.tabs.count()):
-#                 tab = self.tabs.widget(i)
-#                 sensor = tab.sensor
-#                 ax = tab.figure.clear()
-#                 ax = tab.figure.add_subplot(111)
-#                 ax.plot(recent_data['timestamp'], recent_data[sensor], label=sensor)
-
-#                 # 기준선 추가
-#                 if sensor in self.thresholds:
-#                     threshold = self.thresholds[sensor]
-#                     ax.axhline(y=threshold, color='red', linestyle='--', label=f"위험 기준: {threshold}")
-
-#                 ax.set_title(f"{sensor} 실시간 추이")
-#                 ax.set_xlabel("시간")
-#                 ax.set_ylabel("값")
-#                 ax.tick_params(axis='x', rotation=45)
-#                 ax.grid(True)
-#                 ax.legend()
-#                 tab.canvas.draw()
-
-#             # 경고 감지
-#             latest = df.iloc[-1]
-#             ts = str(latest['timestamp'])
-
-#             if latest['temperature'] >= self.thresholds["temperature"]:
-#                 self.show_alert("온도 경고", f"온도 초과: {latest['temperature']}°C")
-#                 self.insert_threshold_event("temperature", latest['temperature'], self.thresholds["temperature"])
-
-#             if latest['sound'] >= self.thresholds["sound"]:
-#                 self.show_alert("소음 경고", f"소음 초과: {latest['sound']}dB")
-#                 self.insert_threshold_event("sound", latest['sound'], self.thresholds["sound"])
-
-#             if latest['gas'] >= self.thresholds["gas"]:
-#                 self.show_alert("가스 경고", f"가스 농도 초과: {latest['gas']}ppm")
-#                 self.insert_threshold_event("gas", latest['gas'], self.thresholds["gas"])
-
-
-#         except Exception as e:
-#             print(f"[에러] {e}")
-
-#     def show_alert(self, title, message):
-#         alert = QMessageBox()
-#         alert.setWindowTitle(title)
-#         alert.setText(message)
-#         alert.setIcon(QMessageBox.Warning)
-#         alert.exec_()
-
-#     def insert_threshold_event(self, sensor_type, value, threshold):
-#         try:
-#             conn = pymysql.connect(
-#                 host='localhost',
-#                 user='root',
-#                 password='1234',  # ← 너의 비밀번호로 바꿔야 해
-#                 database='final_project',
-#                 charset='utf8mb4'
-#             )
-#             cursor = conn.cursor()
-#             now = datetime.now()
-
-#             # 1. SensorData 저장
-#             insert_sensor = '''
-#                 INSERT INTO SensorData (timestamp, sensor_type, value, unit, process_id)
-#                 VALUES (%s, %s, %s, %s, %s)
-#             '''
-#             unit_map = {
-#                 'temperature': '°C',
-#                 'gas': 'ppm',
-#                 'sound': 'dB',
-#                 'power': 'kW'
-#             }
-#             unit = unit_map.get(sensor_type, 'unit')
-#             process_id = 'P01'
-
-#             cursor.execute(insert_sensor, (now, sensor_type, value, unit, process_id))
-#             sensor_data_id = cursor.lastrowid
-
-#             # 2. ThresholdEvent 저장
-#             insert_event = '''
-#                 INSERT INTO ThresholdEvent (sensor_data_id, threshold_type, threshold_value, actual_value, status, detected_at)
-#                 VALUES (%s, %s, %s, %s, %s, %s)
-#             '''
-#             status = 'Red'
-#             cursor.execute(insert_event, (sensor_data_id, sensor_type, threshold, value, status, now))
-
-#             conn.commit()
-#             conn.close()
-#         except Exception as e:
-#             print(f"[DB 저장 에러] {e}")
-
-
-
-# if __name__ == "__main__":
-#     app = QApplication(sys.argv)
-#     dashboard = SensorDashboard()
-#     dashboard.show()
-#     sys.exit(app.exec_())
-
+import os
 import sys
 import pandas as pd
 from PyQt5.QtWidgets import (
     QApplication, QWidget, QVBoxLayout, QLabel, QTabWidget,
     QMessageBox, QPushButton, QHBoxLayout, QTableWidget, QTableWidgetItem,
-    QFrame, QDialog, QDialogButtonBox, QGridLayout
+    QFrame, QDialog, QDialogButtonBox, QGridLayout,QScrollArea,QSizePolicy
 )
 from PyQt5.QtCore import QTimer, Qt
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
@@ -196,6 +24,8 @@ class SensorDashboard(QWidget):
         super().__init__()
         self.setWindowTitle("스마트 산업현장 에너지·안전 대시보드")
         self.setGeometry(200, 200, 1100, 720)
+        self.simulator_process_cpp = None
+        self.simulator_process_py = None
 
         self.csv_path = "C:/Users/user/Desktop/산업재해데이터/sensor_result.csv"
         self.df = pd.read_csv(self.csv_path, encoding="cp949")
@@ -203,6 +33,8 @@ class SensorDashboard(QWidget):
         self.last_row_count = len(self.df)
         self.simulator_process = None
         self.alert_active = True
+
+
 
         self.layout = QVBoxLayout()
         self.setLayout(self.layout)
@@ -262,6 +94,13 @@ class SensorDashboard(QWidget):
 
         for sensor in self.sensors:
             self.tabs.addTab(self.create_sensor_tab(sensor), sensor)
+        
+        # __init__() 마지막 탭 구성 부분에 추가하세요
+        # __init__에서 탭 추가할 때
+        self.efficiency_csv_path = "C:/Users/user/Desktop/산업재해데이터/에너지_효율_실시간.csv"
+        self.efficiency_tab = self.create_efficiency_tab()
+        self.efficiency_tab_index = self.tabs.addTab(self.efficiency_tab, "전력 효율 데이터")
+
 
         self.tabs.addTab(self.create_event_log_tab(), "이벤트 로그")
 
@@ -274,6 +113,9 @@ class SensorDashboard(QWidget):
             try:
                 self.simulator_process = subprocess.Popen(
                     ["C:/Users/user/Desktop/산업재해데이터/run_and_sync/musago.exe"]
+                )
+                self.simulator_process_py = subprocess.Popen(
+                    ["python","C:/Users/user/Documents/python_db_connect/sensor_simulator.py" ], cwd=os.path.dirname(__file__)
                 )
                 self.status_label.setText("상태: 실행 중")
                 self.start_btn.setEnabled(False)
@@ -290,6 +132,12 @@ class SensorDashboard(QWidget):
             self.start_btn.setEnabled(True)
             self.alert_active = False
             print("⏹ 센서 시뮬레이터 종료됨")
+            if self.simulator_process_cpp:
+                self.simulator_process_cpp.terminate()
+                self.simulator_process_cpp = None
+            if self.simulator_process_py:
+                self.simulator_process_py.terminate()
+                self.simulator_process_py = None
 
     def create_sensor_tab(self, sensor):
         frame = QFrame()
@@ -356,6 +204,7 @@ class SensorDashboard(QWidget):
 
                 latest = self.df.iloc[-1]
                 new_data_added = True  # 플래그 설정
+                self.update_efficiency_tab()
 
                 # DB 저장
                 try:
@@ -424,6 +273,75 @@ class SensorDashboard(QWidget):
 
         except Exception as e:
             print(f"[실시간 그래프 에러] {e}")
+
+
+    def update_efficiency_tab(self):
+        try:
+            df_eff = pd.read_csv(self.efficiency_csv_path, encoding="cp949")
+            df_eff['timestamp'] = pd.to_datetime(df_eff['timestamp'])
+
+            scroll_area = self.efficiency_tab  # 직접 참조
+            content = scroll_area.widget()
+            if not content:
+                return
+
+            layout = content.layout()
+            while layout.count():
+                item = layout.takeAt(0)
+                widget = item.widget()
+                if widget:
+                    widget.deleteLater()
+
+            for metric in ["temperature", "humidity", "co2", "power_usage", "efficiency(%)"]:
+                fig = Figure(figsize=(10, 2.5))
+                canvas = FigureCanvas(fig)
+                canvas.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+                ax = fig.add_subplot(111)
+                ax.plot(df_eff['timestamp'], df_eff[metric], label=metric)
+                ax.set_title(f"{metric} 추이")
+                ax.tick_params(axis='x', rotation=45)
+                ax.grid(True)
+                ax.legend()
+                layout.addWidget(canvas)
+
+        except Exception as e:
+            print(f"[전력 효율 실시간 업데이트 오류] {e}")
+
+
+  
+
+    def create_efficiency_tab(self):
+        scroll_area = QScrollArea()
+        scroll_area.setWidgetResizable(True)
+
+        content_widget = QWidget()
+        content_layout = QVBoxLayout()
+        content_widget.setLayout(content_layout)
+        scroll_area.setWidget(content_widget)
+
+        try:
+            df = pd.read_csv(self.efficiency_csv_path, encoding="cp949")
+            df['timestamp'] = pd.to_datetime(df['timestamp'])
+
+            for metric in ["temperature", "humidity", "co2", "power_usage", "efficiency(%)"]:
+                fig = Figure(figsize=(10, 2.5))
+                canvas = FigureCanvas(fig)
+                canvas.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+                ax = fig.add_subplot(111)
+                ax.plot(df['timestamp'], df[metric], label=metric)
+                ax.set_title(f"{metric} 추이")
+                ax.tick_params(axis='x', rotation=45)
+                ax.grid(True)
+                ax.legend()
+                content_layout.addWidget(canvas)
+
+        except Exception as e:
+            label = QLabel(f"[에러] 전력 효율 데이터 로딩 실패: {e}")
+            content_layout.addWidget(label)
+
+        scroll_area.setWidget(content_widget)
+        return scroll_area
+
 
 
     def show_custom_alert(self, title, message):
