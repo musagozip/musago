@@ -100,6 +100,11 @@ class RealtimePredictDashboard(QWidget):
         layout = QVBoxLayout()
         self.setLayout(layout)
 
+        self.risk_alert_triggered = False
+        self.risk_detected_time = None  # risk가 최초 감지된 시간 저장.
+        self.risk_alert_shown = False  # risk 예측에 대해 자동 알림창이 한 번이라도 떴는지 여부
+
+
         title = QLabel("🔍 실시간 센서 및 예측 대시보드")
         title.setAlignment(Qt.AlignCenter)
         title.setStyleSheet("font-size: 22px; font-weight: bold; padding: 10px; background-color: #f44336; color: white;")
@@ -122,14 +127,17 @@ class RealtimePredictDashboard(QWidget):
         self.start_btn = QPushButton("▶ 실행")
         self.stop_btn = QPushButton("■ 종료")
         self.export_pdf_btn = QPushButton("📄 PDF 출력")
+        self.show_alert_btn = QPushButton("🚨 위험 알림 표시")
         
         self.start_btn.clicked.connect(self.start_stream)
         self.stop_btn.clicked.connect(self.stop_stream)
         self.export_pdf_btn.clicked.connect(self.export_to_pdf)
+        self.show_alert_btn.clicked.connect(self.show_risk_alert)  # 새로운 이벤트 연결
         
         self.btn_layout.addWidget(self.start_btn)
         self.btn_layout.addWidget(self.stop_btn)
         self.btn_layout.addWidget(self.export_pdf_btn)
+        self.btn_layout.addWidget(self.show_alert_btn)  # 새로운 버튼 추가
         
         layout.addLayout(self.btn_layout)
 
@@ -196,6 +204,19 @@ class RealtimePredictDashboard(QWidget):
             QTabBar::tab:hover {
                 background: #f44336;
                 color: white;
+            }
+        """)
+
+        self.show_alert_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #ff5722;
+                color: white;
+                font-weight: bold;
+                padding: 10px;
+                border-radius: 5px;
+            }
+            QPushButton:hover {
+                background-color: #e64a19;
             }
         """)
 
@@ -456,6 +477,83 @@ class RealtimePredictDashboard(QWidget):
             # 이모지나 한글이 포함된 경우 대체 메시지 출력
             simplified_msg = ''.join(c if ord(c) < 128 else '?' for c in message)
             print(simplified_msg)
+
+    # 클래스 안에 show_risk_alert 메서드 추가
+    def show_risk_alert(self):
+        """AI 예측 결과 기반으로 위험 알림 창을 표시하는 함수 (최초 1회 감지 유지 + 시간 포함)"""
+        from PyQt5.QtWidgets import QDialog, QVBoxLayout, QLabel, QPushButton
+        from PyQt5.QtGui import QFont
+        from PyQt5.QtCore import Qt
+
+        sensor_info_text = "⚠ 현재 위험 상태는 감지되지 않았습니다."
+
+        # AI 예측 결과 확인
+        risk_df = self.predictions.get("위험 예측", pd.DataFrame())
+        if not risk_df.empty and "risk_prediction" in risk_df.columns:
+            if "risk" in risk_df["risk_prediction"].values:
+                if not self.risk_alert_triggered:
+                    self.risk_alert_triggered = True
+                    # 최초 risk 감지 시점 기록
+                    risk_row = risk_df[risk_df["risk_prediction"] == "risk"].iloc[0]
+                    if "timestamp" in risk_row:
+                        self.risk_detected_time = risk_row["timestamp"]
+
+        # 알림 메시지 작성
+        if self.risk_alert_triggered:
+            time_str = f"감지 시각: {self.risk_detected_time}" if self.risk_detected_time else "시간 정보 없음"
+            sensor_info_text = f"⚠ 위험 예측 결과: 'risk' 상태가 감지된 적이 있습니다.\n{time_str}"
+
+        # 알림창 생성
+        alert_dialog = QDialog(self)
+        alert_dialog.setWindowTitle("⚠️ 위험 알림")
+        alert_dialog.setFixedSize(400, 300)
+        alert_dialog.setStyleSheet("background-color: #ffebee;")
+
+        layout = QVBoxLayout()
+
+        icon_label = QLabel("⚠️")
+        icon_label.setFont(QFont("Arial", 48))
+        icon_label.setAlignment(Qt.AlignCenter)
+        layout.addWidget(icon_label)
+
+        title_label = QLabel("위험 상황 감지!")
+        title_label.setAlignment(Qt.AlignCenter)
+        title_label.setStyleSheet("color: #d32f2f; font-size: 22px; font-weight: bold; margin: 10px;")
+        layout.addWidget(title_label)
+
+        message_label = QLabel("AI 예측 결과에 따라 위험 상태가 판단되었습니다.\n즉시 시스템 점검 및 조치를 권장합니다.")
+        message_label.setAlignment(Qt.AlignCenter)
+        message_label.setWordWrap(True)
+        message_label.setStyleSheet("font-size: 14px; margin: 15px; line-height: 150%;")
+        layout.addWidget(message_label)
+
+        sensor_info = QLabel(sensor_info_text)
+        sensor_info.setAlignment(Qt.AlignCenter)
+        sensor_info.setStyleSheet("background-color: white; padding: 10px; border-radius: 5px; font-weight: bold; color: #d32f2f;")
+        layout.addWidget(sensor_info)
+
+        ok_button = QPushButton("확인 및 조치")
+        ok_button.setStyleSheet("""
+            QPushButton {
+                background-color: #d32f2f;
+                color: white;
+                font-weight: bold;
+                padding: 10px;
+                border-radius: 5px;
+                margin-top: 20px;
+            }
+            QPushButton:hover {
+                background-color: #b71c1c;
+            }
+        """)
+        ok_button.clicked.connect(alert_dialog.accept)
+        layout.addWidget(ok_button)
+
+        alert_dialog.setLayout(layout)
+        alert_dialog.exec_()
+
+    
+    
 
     def get_file_timestamps(self):
         """현재 존재하는 모든 파일의 마지막 수정 시간을 저장"""
@@ -784,27 +882,40 @@ class RealtimePredictDashboard(QWidget):
 
         # 현재 행 가져오기
         sensor_row = self.sensor_df.iloc[self.index]
-        
+
         # 테이블에 행 추가
         self.append_row(self.sensor_tab["table"], sensor_row)
-        
+
         # 센서 상태 카드 업데이트
         self.update_sensor_status_cards(sensor_row)
-        
+
         # 센서 그래프 업데이트
         self.update_sensor_graphs(self.sensor_df.iloc[:self.index+1])
 
         # 예측 탭 업데이트
         for label, df in self.predictions.items():
-            if not df.empty and self.index < len(df):  # 인덱스가 데이터프레임 길이보다 작은지 확인
+            if not df.empty and self.index < len(df):
                 row = df.iloc[self.index]
                 tab = self.prediction_tabs[label]
                 self.append_row(tab["table"], row)
-                col_name = tab["columns"][-1]  # 마지막 열을 그래프로 시각화
+                col_name = tab["columns"][-1]
                 self.update_plot(tab["figure"], df.iloc[:self.index+1], df.columns[0], col_name)
 
+        # ✅ 위험 예측이 현재 시각화된 index에서 risk이면 알림 표시
+        
+        if (
+            not self.risk_alert_shown and
+            "위험 예측" in self.predictions and
+            not self.predictions["위험 예측"].empty and
+            self.index < len(self.predictions["위험 예측"])
+        ):
+            current_row = self.predictions["위험 예측"].iloc[self.index]
+            if current_row.get("risk_prediction") == "risk":
+                self.show_risk_alert()
+                self.risk_alert_shown = True
+
         self.update_prediction_stats()
-        self.index += 1
+        self.index += 1  # 🔺 마지막에 위치시켜야 정확
 
     def append_row(self, table, row_data):
         row_idx = table.rowCount()
@@ -1027,51 +1138,42 @@ class RealtimePredictDashboard(QWidget):
     # 파이 차트 업데이트 함수
     def update_prediction_stats(self):
         """예측 통계 요약 업데이트"""
-        # 탭이 없으면 업데이트하지 않음
         if "예측 통계 요약" not in self.stats_tabs:
             return
         
         stats_tab = self.stats_tabs["예측 통계 요약"]
-        
-        # 위험 예측 데이터 집계
+
+        # 위험 예측 데이터 확인
         if "위험 예측" in self.predictions and not self.predictions["위험 예측"].empty:
             risk_df = self.predictions["위험 예측"]
-            
-            # 현재까지 표시된 데이터만 집계 (self.index까지)
             if self.index <= len(risk_df):
                 current_data = risk_df.iloc[:self.index]
-                
-                # risk_prediction 컬럼 값 집계
+
                 if "risk_prediction" in current_data.columns:
                     value_counts = current_data["risk_prediction"].value_counts()
-                    
-                    # 파이 차트 업데이트
+
+                    # ⬇ 파이 차트 그리기
                     fig = stats_tab["risk_figure"]
                     fig.clear()
                     fig.patch.set_facecolor('#f8f9fa')
                     ax = fig.add_subplot(111)
-                    
-                    # 데이터가 있는 경우만 파이 차트 그리기
+
                     if not value_counts.empty:
-                        # 색상 매핑
                         colors = {'safe': '#4caf50', 'risk': '#f44336', 'warning': '#ffeb3b'}
                         chart_colors = [colors.get(val, '#9e9e9e') for val in value_counts.index]
-                        
-                        # 파이 차트 그리기
+
                         wedges, texts, autotexts = ax.pie(
-                            value_counts, 
+                            value_counts,
                             labels=value_counts.index,
                             autopct='%1.1f%%',
                             pctdistance=0.75,
                             startangle=90,
                             colors=chart_colors,
                             shadow=True,
-                            explode=[0.05 if val == 'risk' else 0 for val in value_counts.index],  # 위험 카테고리를 살짝 돌출
+                            explode=[0.05 if val == 'risk' else 0 for val in value_counts.index],
                             wedgeprops={'edgecolor': 'white', 'linewidth': 1}
-                            
                         )
-                        
-                        # 텍스트 스타일 설정
+
                         for text in texts:
                             text.set_fontsize(11)
                             text.set_fontweight('bold')
@@ -1079,14 +1181,14 @@ class RealtimePredictDashboard(QWidget):
                             autotext.set_fontsize(10)
                             autotext.set_color('white')
                             autotext.set_fontweight('bold')
-                        
-                        ax.set_title('위험 예측 분포', fontsize=14, fontweight='bold', color='#e53935')
-                        ax.axis('equal')  # 원형 유지
 
-                        # 범례 추가
-                        legend = ax.legend(
-                            wedges, 
-                            [f"{idx}: {val} 건" for idx, val in zip(value_counts.index, value_counts.values)],
+                        ax.set_title('위험 예측 분포', fontsize=14, fontweight='bold', color='#e53935')
+                        ax.axis('equal')
+
+                        # ⬇ 범례
+                        ax.legend(
+                            wedges,
+                            [f"{label}: {val} 건" for label, val in value_counts.items()],
                             title="예측 분류",
                             loc="center left",
                             bbox_to_anchor=(1, 0, 0.5, 1),
@@ -1094,34 +1196,29 @@ class RealtimePredictDashboard(QWidget):
                             framealpha=0.9,
                             edgecolor='#dddddd'
                         )
-                        legend.get_title().set_fontweight('bold')
-                        
-                        # 통계 테이블 업데이트
+
+                        # ⬇ 테이블 업데이트
                         stats_table = stats_tab["stats_table"]
-                        
-                        # 기본값 0으로 설정
                         for row, category in enumerate(['safe', 'risk', 'warning']):
                             count = value_counts.get(category, 0)
-                            count_item = QTableWidgetItem(str(count))
-                            count_item.setTextAlignment(Qt.AlignCenter)
-
+                            item = QTableWidgetItem(str(count))
+                            item.setTextAlignment(Qt.AlignCenter)
                             if count > 0:
-                                count_item.setFont(QFont("Arial", 10, QFont.Bold))
-                        
-                            stats_table.setItem(row, 1, count_item)
+                                item.setFont(QFont("Arial", 10, QFont.Bold))
+                            stats_table.setItem(row, 1, item)
                     else:
-                        # 데이터가 없는 경우 안내 메시지 표시
                         ax.set_facecolor('#f5f5f5')
-                        ax.text(0.5, 0.5, '데이터 수집 중...', 
-                                horizontalalignment='center',
-                                verticalalignment='center',
-                                fontsize=14,
-                                fontweight='bold',
-                                color='#757575')
-                    
-                    # 캔버스 업데이트
+                        ax.text(0.5, 0.5, '데이터 수집 중...',
+                                ha='center', va='center',
+                                fontsize=14, fontweight='bold', color='#757575')
+
                     fig.tight_layout()
                     stats_tab["risk_canvas"].draw()
+
+            # ✅ 최초 1회 알림창 자동 표시
+            # if not self.risk_alert_shown and "risk" in risk_df["risk_prediction"].values:
+            #     self.show_risk_alert()
+            #     self.risk_alert_shown = True
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)
